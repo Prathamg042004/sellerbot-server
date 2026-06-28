@@ -2,7 +2,7 @@
   "name": "instasell-ai-server",
   "version": "2.0.0",
   "description": "InstaSell AI — Instagram DM automation server",
-  "main": "server-v2.js",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server-v2.js"
