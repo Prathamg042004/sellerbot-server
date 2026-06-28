@@ -1,14 +1,17 @@
 {
   "name": "instasell-ai-server",
-  "version": "1.0.0",
-  "description": "InstaSell AI — Instagram DM automation webhook server",
-  "main": "server.js",
+  "version": "2.0.0",
+  "description": "InstaSell AI — Instagram DM automation server",
+  "main": "server-v2.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server-v2.js",
+    "dev": "node server-v2.js"
   },
   "dependencies": {
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "axios": "^1.7.0"
   },
   "engines": {
     "node": ">=18.0.0"
