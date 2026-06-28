@@ -4,7 +4,7 @@
   "description": "InstaSell AI — Instagram DM automation server",
   "main": "server-v2.js",
   "scripts": {
-    "start": "node server-v2.js",
+    "start": "node server.js",
     "dev": "node server-v2.js"
   },
   "dependencies": {
