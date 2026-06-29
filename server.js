@@ -240,7 +240,7 @@ async function handleIncomingDM(event) {
   });
 
   // ── 14. Send reply to buyer via Instagram ──
-  await sendInstagramDM(sellerIgId, buyerIgId, cleanReply, seller.page_access_token);
+await sendInstagramDM(sellerIgId, buyerIgId, cleanReply, seller.page_access_token || process.env.PAGE_ACCESS_TOKEN);
 
   // ── 15. Capture order if detected ──
   if (order) {
@@ -425,7 +425,7 @@ async function handleOptOut(buyerIgId, seller) {
   await sendInstagramDM(
     seller.instagram_id, buyerIgId,
     "No problem! I've stopped automated messages for you. If you ever want to shop again, just message us anytime 😊",
-    seller.page_access_token
+    seller.page_access_token || process.env.PAGE_ACCESS_TOKEN
   );
 }
 
@@ -444,7 +444,7 @@ async function handleHumanHandoff(buyerIgId, seller) {
   await sendInstagramDM(
     seller.instagram_id, buyerIgId,
     "Of course! I'm notifying the store owner right now 🙏 They'll respond to you shortly. Thank you for your patience!",
-    seller.page_access_token
+    seller.page_access_token || process.env.PAGE_ACCESS_TOKEN
   );
 
   // TODO: Send WhatsApp alert to seller about human handoff request
