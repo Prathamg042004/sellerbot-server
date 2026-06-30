@@ -1,8 +1,3 @@
-// ═══════════════════════════════════════════════════════════════
-// InstaSell AI — Complete Server v2.0
-// Webhook handler + Claude AI + Bargain Engine + Order Capture
-// ═══════════════════════════════════════════════════════════════
-
 const express = require('express');
 const crypto  = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
@@ -23,7 +18,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // ─── Constants ───────────────────────────────────────────────
 const VERIFY_TOKEN  = process.env.VERIFY_TOKEN  || 'instasell_verify_2024';
 const APP_SECRET    = process.env.APP_SECRET    || '';
-const IG_API_BASE   = 'https://graph.facebook.com/v21.0';
+const IG_API_BASE   = 'https://graph.instagram.com/v21.0';
 
 const OPT_OUT_WORDS  = ['stop','unsubscribe','opt out','band karo','mat bhejo','dont message'];
 const HUMAN_WORDS    = ['human','real person','owner','seller','insaan','asli insaan','talk to someone','khud baat karo'];
