@@ -15,7 +15,8 @@ const PORT = process.env.PORT || 3000;
 // ─── Clients ─────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.SUPABASE_SERVICE_KEY,
+  { db: { schema: 'sellerbot' } }
 );
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
