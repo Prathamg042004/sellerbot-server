@@ -221,8 +221,9 @@ async function handleIncomingDM(event) {
     messages: aiMessages
   });
 
-  const rawReply = response.content?.[0]?.text || 'Sorry, let me try again!';
-  console.log('🤖 AI replied:', rawReply.substring(0, 100) + '...');
+const rawReply = (response && response.content && response.content[0] && response.content[0].text) ? response.content[0].text : 'Sorry, could you say that again? 😊';
+console.log('Full AI response:', JSON.stringify(response.content));
+console.log('🤖 AI replied:', rawReply.substring(0, 100) + '...');
 
   // ── 12. Parse order from reply ──
   const order = parseOrder(rawReply);
