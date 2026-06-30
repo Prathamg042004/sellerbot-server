@@ -334,43 +334,35 @@ function cleanMessage(text) {
 async function captureOrder(orderData, seller, buyer, conv, products) {
   console.log('📦 Capturing order:', orderData);
 
-  // Find product
   const product = products.find(p =>
-    p.name.toLowerCase() === orderData.product.toLowerCase() ||
+    p.name.toLowerCase() === orderData.product?.toLowerCase() ||
     p.id === orderData.product_id
   );
 
-  // Decrement stock
   if (product && orderData.size) {
     await supabase.rpc('decrement_stock', { p_product_id: product.id, p_variant: orderData.size });
   }
 
-  // Save order
-  const { data: order } = await supabase.schema('sellerbot').from('orders').insert({
-    seller_id:        seller.id,
-    buyer_id:         buyer.id,
-    product_id:       product?.id,
-    conversation_id:  conv.id,
-    product_name:     orderData.product,
-    size:             orderData.size,
-    listed_price:     product?.listed_price,
-    agreed_price:     orderData.price,
-    delivery_address: orderData.address,
-    buyer_name:       orderData.buyer_name || buyer.instagram_username,
-    status:           'pending_payment',
+  const { data: order } = await supabase.from('orders').insert({
+    seller_id: seller.id,
+    buyer_id: buyer.id,
+    product_id: product?.id,
+    conversation_id: conv.id,
+    product_name: orderData.product || 'Unknown',
+    size: orderData.size || '',
+    listed_price: product?.listed_price,
+    agreed_price: orderData.price,
+    delivery_address: orderData.address || '',
+    buyer_name: orderData.buyer_name || '',
+    status: 'pending_payment',
     ai_messages_count: conv.message_count || 0
   }).select().single();
 
   console.log('✅ Order saved:', order?.order_number);
 
-  // Update seller stats
-  if (product && orderData.size) {
-    await supabase.rpc('increment_seller_orders', { p_seller_id: seller.id });
-
-  // Update buyer profile
+  await supabase.rpc('increment_seller_orders', { p_seller_id: seller.id });
   await supabase.rpc('increment_buyer_orders', { p_buyer_id: buyer.id, p_size: orderData.size || '', p_address: orderData.address || '' });
-  // TODO: Send WhatsApp notification to seller
-  // TODO: Generate Razorpay payment link
+
   return order;
 }
 
