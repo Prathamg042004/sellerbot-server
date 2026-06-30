@@ -221,7 +221,7 @@ async function handleIncomingDM(event) {
     messages: aiMessages
   });
 
-  const rawReply = response.content[0].text;
+  const rawReply = response.content?.[0]?.text || 'Sorry, let me try again!';
   console.log('🤖 AI replied:', rawReply.substring(0, 100) + '...');
 
   // ── 12. Parse order from reply ──
