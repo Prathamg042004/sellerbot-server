@@ -342,12 +342,7 @@ async function captureOrder(orderData, seller, buyer, conv, products) {
 
   // Decrement stock
   if (product && orderData.size) {
-    await supabase.schema('sellerbot')
-      .from('product_stock')
-      .update({ stock: supabase.raw('stock - 1') })
-      .eq('product_id', product.id)
-      .eq('variant', orderData.size)
-      .gt('stock', 0);
+    await supabase.rpc('decrement_stock', { p_product_id: product.id, p_variant: orderData.size });
   }
 
   // Save order
@@ -369,19 +364,11 @@ async function captureOrder(orderData, seller, buyer, conv, products) {
   console.log('✅ Order saved:', order?.order_number);
 
   // Update seller stats
-  await supabase.schema('sellerbot').from('sellers')
-    .update({ total_orders: supabase.raw('total_orders + 1') })
-    .eq('id', seller.id);
+  if (product && orderData.size) {
+    await supabase.rpc('increment_seller_orders', { p_seller_id: seller.id });
 
   // Update buyer profile
-  await supabase.schema('sellerbot').from('buyers')
-    .update({
-      preferred_size: orderData.size,
-      saved_address: orderData.address,
-      total_orders: supabase.raw('total_orders + 1')
-    })
-    .eq('id', buyer.id);
-
+  await supabase.rpc('increment_buyer_orders', { p_buyer_id: buyer.id, p_size: orderData.size || '', p_address: orderData.address || '' });
   // TODO: Send WhatsApp notification to seller
   // TODO: Generate Razorpay payment link
   return order;
