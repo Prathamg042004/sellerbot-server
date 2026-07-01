@@ -332,40 +332,65 @@ function cleanMessage(text) {
 // CAPTURE ORDER TO DATABASE
 // ═══════════════════════════════════════════════════════════════
 async function captureOrder(orderData, seller, buyer, conv, products) {
-  console.log('📦 Capturing order:', orderData);
+  try {
+    console.log('📦 Capturing order:', JSON.stringify(orderData));
 
-  const product = products.find(p =>
-    p.name.toLowerCase() === orderData.product?.toLowerCase() ||
-    p.id === orderData.product_id
-  );
+    const product = products.find(p =>
+      p.name.toLowerCase() === (orderData.product || '').toLowerCase() ||
+      p.id === orderData.product_id
+    );
 
-  if (product && orderData.size) {
-    await supabase.rpc('decrement_stock', { p_product_id: product.id, p_variant: orderData.size });
+    // Decrement stock
+    if (product && orderData.size) {
+      try {
+        await supabase.rpc('decrement_stock', { p_product_id: product.id, p_variant: orderData.size });
+        console.log('📉 Stock decremented');
+      } catch (e) { console.log('Stock decrement skipped:', e.message); }
+    }
+
+    // Save order
+    const { data: order, error: orderError } = await supabase.from('orders').insert({
+      seller_id: seller.id,
+      buyer_id: buyer.id,
+      product_id: product ? product.id : null,
+      conversation_id: conv.id,
+      product_name: orderData.product || 'Unknown',
+      size: orderData.size || '',
+      listed_price: product ? product.listed_price : 0,
+      agreed_price: orderData.price || 0,
+      delivery_address: orderData.address || '',
+      buyer_name: orderData.buyer_name || '',
+      status: 'pending_payment',
+      ai_messages_count: conv.message_count || 0
+    }).select().single();
+
+    if (orderError) {
+      console.log('❌ Order save error:', orderError.message);
+      return null;
+    }
+
+    console.log('✅ Order saved! ID:', order.id);
+
+    // Update seller stats
+    try {
+      await supabase.rpc('increment_seller_orders', { p_seller_id: seller.id });
+    } catch (e) { console.log('Seller stats skip:', e.message); }
+
+    // Update buyer profile
+    try {
+      await supabase.rpc('increment_buyer_orders', { 
+        p_buyer_id: buyer.id, 
+        p_size: orderData.size || '', 
+        p_address: orderData.address || '' 
+      });
+    } catch (e) { console.log('Buyer stats skip:', e.message); }
+
+    return order;
+  } catch (err) {
+    console.log('❌ captureOrder error:', err.message);
+    return null;
   }
-
-  const { data: order } = await supabase.from('orders').insert({
-    seller_id: seller.id,
-    buyer_id: buyer.id,
-    product_id: product?.id,
-    conversation_id: conv.id,
-    product_name: orderData.product || 'Unknown',
-    size: orderData.size || '',
-    listed_price: product?.listed_price,
-    agreed_price: orderData.price,
-    delivery_address: orderData.address || '',
-    buyer_name: orderData.buyer_name || '',
-    status: 'pending_payment',
-    ai_messages_count: conv.message_count || 0
-  }).select().single();
-
-  console.log('✅ Order saved:', order?.order_number);
-
-  await supabase.rpc('increment_seller_orders', { p_seller_id: seller.id });
-  await supabase.rpc('increment_buyer_orders', { p_buyer_id: buyer.id, p_size: orderData.size || '', p_address: orderData.address || '' });
-
-  return order;
 }
-
 
 // ═══════════════════════════════════════════════════════════════
 // SEND INSTAGRAM DM
