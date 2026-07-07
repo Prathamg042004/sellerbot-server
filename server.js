@@ -592,6 +592,21 @@ app.get('/', (req, res) => res.json({
 }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Register instagram_basic API call on startup
+async function registerBasicCall() {
+  const token = process.env.PAGE_ACCESS_TOKEN;
+  if (token) {
+    try {
+      const res = await axios.get('https://graph.instagram.com/v21.0/me?fields=id,username', {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      console.log('instagram_basic registered:', res.data);
+    } catch (e) {
+      console.log('instagram_basic call:', e.response?.data?.error?.message || e.message);
+    }
+  }
+}
+registerBasicCall();
 app.listen(PORT, () => {
   console.log(`\n🚀 InstaSell AI v4.0 — The Amazon of Instagram DMs`);
   console.log('   Visual Search | Outfit Completion | Smart Pricing | Multi-Order\n');
