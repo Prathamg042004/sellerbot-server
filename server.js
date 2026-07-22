@@ -135,7 +135,7 @@ async function handleIncomingDM(event) {
   }
 
   // Save incoming message
-  const msgContent = imageUrl ? `[BUYER_PHOTO:${imageUrl}]` : audioUrl ? '[VOICE_NOTE]' : text;
+  const msgContent = imageUrl ? `[BUYER_PHOTO:${imageUrl}]` : audioUrl ? '[VOICE_NOTE]' : (text || 'hi');
   await supabase.from('messages').insert({
     conversation_id: conv.id, instagram_mid: messageId,
     role: 'buyer', content: msgContent, message_type: msgType
@@ -187,7 +187,7 @@ async function handleIncomingDM(event) {
       aiMessages.push({ role, content: 'The buyer sent a voice note. Since I cannot listen to it, politely ask them to type their message or describe what they want.' });
       continue;
     }
-    
+    if (m.content && m.content.trim())
     aiMessages.push({ role, content: m.content });
   }
 
