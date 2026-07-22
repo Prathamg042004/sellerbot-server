@@ -369,7 +369,7 @@ When product ✓ size ✓ price ✓ address ✓ are ALL confirmed:
 <<<END_ORDER>>>
 
 ═══ STYLE ═══
-- 3-5 lines max. This is Instagram DM, not email.
+- 2-3 lines max. This is Instagram DM, not email.
 - Numbered lists for products. Emojis per item.
 - Hinglish: "yaar", "bilkul", "ekdum sahi", "kya baat hai"
 - ALWAYS include [SEND_PHOTOS:...] when showing products
@@ -516,14 +516,37 @@ async function captureOrder(orderData, seller, buyer, conv, products) {
 // ═══ SEND TEXT DM ═══
 async function sendInstagramDM(sellerIgId, buyerIgId, text, token) {
   if (!token) { console.log('⚠️ No token'); return; }
-  try {
-    await axios.post(`${IG_API_BASE}/me/messages`, {
-      recipient: { id: buyerIgId }, message: { text }
-    }, { headers: { Authorization: `Bearer ${token}` } });
-    console.log('✅ Sent to Instagram');
-  } catch (err) {
-    console.error('❌ Send fail:', err.response?.data?.error?.message || err.message);
+  
+  // Split long messages into chunks of max 500 chars
+  const chunks = [];
+  if (text.length > 500) {
+    const parts = text.split('\n\n');
+    let current = '';
+    for (const part of parts) {
+      if ((current + '\n\n' + part).length > 500 && current) {
+        chunks.push(current.trim());
+        current = part;
+      } else {
+        current = current ? current + '\n\n' + part : part;
+      }
+    }
+    if (current) chunks.push(current.trim());
+  } else {
+    chunks.push(text);
   }
+  
+  for (const chunk of chunks) {
+    try {
+      await axios.post(`${IG_API_BASE}/me/messages`, {
+        recipient: { id: buyerIgId },
+        message: { text: chunk }
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
+    } catch (err) {
+      console.error('❌ Send fail:', err.response?.data?.error?.message || err.message);
+    }
+  }
+  console.log('✅ Sent to Instagram (' + chunks.length + ' msgs)');
 }
 
 
