@@ -82,9 +82,14 @@ async function handleIncomingDM(event) {
   console.log(`\n📩 DM [${msgType}]: "${text || '[media]'}" | Buyer:${buyerIgId}`);
 
   // Load seller
-  const { data: seller } = await supabase
-    .from('sellers').select('*').eq('instagram_id', sellerIgId).single();
-  if (!seller) { console.log('❌ Seller not found'); return; }
+  const { data: seller, error: sellerError } = await supabase
+    .from('sellers').select('*').eq('instagram_id', sellerIgId).maybeSingle();
+  if (sellerError) {
+    console.error('Seller lookup failed:', sellerError.code, sellerError.message);
+    return;
+  }
+  if (!seller) { console.error('Seller not found for recipient:', sellerIgId); return; }
+  console.log('Seller matched:', seller.instagram_username);
   const TOKEN = seller.page_access_token || process.env.PAGE_ACCESS_TOKEN;
 
   const lower = (text || '').toLowerCase();
@@ -107,7 +112,17 @@ async function handleIncomingDM(event) {
     buyer = nb;
     console.log('👤 New buyer');
   }
-  if (buyer?.is_opted_out) { console.log('🚫 Opted out'); return; }
+  if (buyer?.is_opted_out) {
+    if (!['start', 'resume', 'subscribe'].includes(lower.trim())) {
+      console.log('Opted out: send START to resume shopping');
+      return;
+    }
+    const { error: resumeError } = await supabase.from('buyers')
+      .update({ is_opted_out: false }).eq('id', buyer.id);
+    if (resumeError) throw new Error('Could not resume shopping: ' + resumeError.message);
+    buyer.is_opted_out = false;
+    console.log('Buyer explicitly resumed shopping');
+  }
 
   // Drop alert check
   if (DROP_ALERT_WORDS.some(w => lower.includes(w))) {
@@ -629,6 +644,13 @@ async function registerBasicCall() {
     }
   }
 }
+async function checkSellerDatabase() {
+  const { data, error } = await supabase.from('sellers')
+    .select('instagram_id, instagram_username');
+  if (error) console.error('Seller database check failed:', error.code, error.message);
+  else console.log('Seller database ready:', data);
+}
+checkSellerDatabase().catch(err => console.error('Seller database check failed:', err.message));
 registerBasicCall();
 app.listen(PORT, () => {
   console.log(`\n🚀 InstaSell AI v4.0 — The Amazon of Instagram DMs`);
