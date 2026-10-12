@@ -44,26 +44,42 @@ app.get('/webhook', (req, res) => {
 
 // ═══ MAIN WEBHOOK ═══
 app.post('/webhook', (req, res) => {
-  res.status(200).send('EVENT_RECEIVED');
+  const body = req.body || {};
+  console.log('Webhook received:', { object: body.object, entries: body.entry?.length || 0 });
   if (APP_SECRET) {
     const sig = req.headers['x-hub-signature-256'];
-    if (sig) {
-      const expected = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
-      if (sig !== expected) return;
+    const expected = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
+    if (typeof sig !== 'string' || sig.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      console.error('Webhook rejected: invalid or missing signature');
+      return res.sendStatus(403);
     }
   }
-  const body = req.body;
-  if (body.object !== 'instagram') return;
-  body.entry?.forEach(entry => {
-    entry.messaging?.forEach(event => {
+  res.status(200).send('EVENT_RECEIVED');
+  if (body.object !== 'instagram') {
+    console.log('Webhook ignored: unsupported object');
+    return;
+  }
+  for (const entry of (Array.isArray(body.entry) ? body.entry : [])) {
+    const events = [...(Array.isArray(entry.messaging) ? entry.messaging : [])];
+    for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
+      if (change.field === 'messages' && change.value) events.push(change.value);
+      else console.log('Webhook field ignored:', change.field);
+    }
+    console.log('Webhook entry:', { id: entry.id, events: events.length });
+    for (const event of events) {
       if (event.message && !event.message.is_echo) {
+        if (!event.sender?.id || !event.recipient?.id) {
+          console.error('Webhook message missing sender or recipient');
+          continue;
+        }
         handleIncomingDM(event).catch(err => console.error('DM error:', err.message));
       }
       if (event.message_delete) {
-        handleMessageDeletion(event.message_delete.mid);
+        handleMessageDeletion(event.message_delete.mid).catch(err => console.error('Message deletion error:', err.message));
       }
-    });
-  });
+    }
+  }
 });
 
 // ═══ MAIN DM HANDLER ═══
@@ -530,7 +546,7 @@ async function captureOrder(orderData, seller, buyer, conv, products) {
 
 // ═══ SEND TEXT DM ═══
 async function sendInstagramDM(sellerIgId, buyerIgId, text, token) {
-  if (!token) { console.log('⚠️ No token'); return; }
+  if (!token) throw new Error('Instagram access token is missing');
   
   // Split long messages into chunks of max 500 chars
   const chunks = [];
@@ -558,7 +574,9 @@ async function sendInstagramDM(sellerIgId, buyerIgId, text, token) {
       }, { headers: { Authorization: `Bearer ${token}` } });
       if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
     } catch (err) {
-      console.error('❌ Send fail:', err.response?.data?.error?.message || err.message);
+      const detail = err.response?.data?.error;
+      console.error('Instagram send failed:', { status: err.response?.status, code: detail?.code, message: detail?.message || err.message });
+      throw new Error('Instagram reply was not delivered: ' + (detail?.message || err.message));
     }
   }
   console.log('✅ Sent to Instagram (' + chunks.length + ' msgs)');
