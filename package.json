@@ -1,11 +1,12 @@
 {
   "name": "instasell-ai-server",
   "version": "2.0.0",
-  "description": "InstaSell AI — Instagram DM automation server",
+  "description": "InstaSell AI \u2014 Instagram DM automation server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server-v2.js"
+    "dev": "node --watch server.js",
+    "test": "node --test security.test.cjs security-http.test.cjs"
   },
   "dependencies": {
     "express": "^4.21.0",
@@ -14,6 +15,6 @@
     "axios": "^1.7.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   }
 }

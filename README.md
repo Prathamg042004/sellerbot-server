@@ -19,12 +19,12 @@ Node.js · Express · Anthropic SDK · Supabase JS · Axios
 
 ## Run locally
 
-Use Node.js 18 or later, as declared in `package.json`.
+Use Node.js 22 or later, as declared in `package.json`.
 
 ```sh
 git clone https://github.com/Prathamg042004/sellerbot-server.git
 cd sellerbot-server
-npm install
+npm ci
 npm start
 ```
 
@@ -36,7 +36,8 @@ Set these environment variables in your shell or hosting provider **before start
 | `SUPABASE_SERVICE_KEY` | Server-only database key; never expose in a frontend |
 | `ANTHROPIC_API_KEY` | Server-side model access |
 | `VERIFY_TOKEN` | Your webhook verification token |
-| `APP_SECRET` | Meta application secret for webhook signatures |
+| `APP_SECRET` | Required Meta application secret for webhook signatures |
+| `ADMIN_API_TOKEN` | Independent random operator bearer token, at least 32 characters; server-only |
 | `PAGE_ACCESS_TOKEN` | Optional startup Instagram account check |
 | `PORT` | HTTP port; defaults to 3000 |
 
@@ -45,7 +46,7 @@ Database access uses the `sellerbot` schema. Existing tables, views, and RPC fun
 ## Request flow
 
 1. Instagram sends an event to `POST /webhook`.
-2. The server checks the signature when `APP_SECRET` is configured and acknowledges receipt.
+2. The server requires a valid signature using `APP_SECRET` and acknowledges receipt.
 3. The handler resolves the seller, buyer, conversation, and catalog.
 4. The model produces a reply; helpers send text/photos and capture order data.
 5. Conversation and activity records are written to Supabase.
@@ -54,7 +55,7 @@ Database access uses the `sellerbot` schema. Existing tables, views, and RPC fun
 
 This is an integration prototype. Meta permissions, webhook configuration, provider credentials, and an existing database are required for real conversations. A successful health check confirms the HTTP process is running; it does not verify the complete Instagram-to-database flow.
 
-The management routes need authentication, seller-scoped authorization, and input validation before public exposure. Configure `APP_SECRET`: signature checks are conditional in the current source. Durable queues, retries, webhook deduplication, schema migrations, and automated integration tests remain follow-up work.
+Management routes require the operator bearer token. This token grants access across sellers; it is not tenant authentication and must never be embedded in a browser dashboard. Missing webhook secrets fail closed. Durable queues, retries, webhook deduplication, schema migrations, and automated integration tests remain follow-up work.
 
 ## Repository map
 
@@ -63,7 +64,7 @@ The management routes need authentication, seller-scoped authorization, and inpu
 | `server.js` | Webhooks, DM handling, catalog helpers, order capture, and endpoints |
 | `package.json` | Dependencies and start commands |
 
-Use `npm start`; the current `dev` script references `server-v2.js`, which is not included.
+Use `npm start` in production, `npm run dev` for local file watching, and `npm test` for security regressions. See [security configuration](SECURITY_HARDENING.md).
 
 ## Development priorities
 

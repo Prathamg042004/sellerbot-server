@@ -20,7 +20,7 @@ const supabase = createClient(
 );
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'instasell_verify_2024';
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || '';
 const APP_SECRET   = process.env.APP_SECRET || '';
 const IG_API_BASE  = 'https://graph.instagram.com/v21.0';
 
@@ -28,14 +28,41 @@ const OPT_OUT_WORDS = ['stop','unsubscribe','opt out','band karo','mat bhejo','d
 const HUMAN_WORDS   = ['human','real person','owner','seller','insaan','asli insaan','talk to someone','khud baat karo'];
 const DROP_ALERT_WORDS = ['notify me','batana','alert me','jab aaye','new collection','naya aaye toh'];
 
-app.use(express.json({ verify: (req,res,buf) => { req.rawBody = buf; } }));
+app.disable('x-powered-by');
+app.use(express.json({ limit: '256kb', verify: (req,res,buf) => { req.rawBody = buf; } }));
+
+function safeEqual(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false;
+  const a = Buffer.from(left), b = Buffer.from(right);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requireAdmin(req, res, next) {
+  const token = process.env.ADMIN_API_TOKEN || '';
+  if (token.length < 32) return res.status(503).json({ error: 'Management API is not configured.' });
+  if (!safeEqual(req.headers.authorization || '', 'Bearer ' + token)) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  res.set('Cache-Control', 'no-store');
+  next();
+}
+
+function validWebhookSignature(rawBody, signature) {
+  if (!APP_SECRET || !Buffer.isBuffer(rawBody) || typeof signature !== 'string' || !/^sha256=[a-f0-9]{64}$/.test(signature)) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(rawBody).digest('hex');
+  return safeEqual(signature, expected);
+}
+
+// Administrative endpoints intentionally grant server-operator access, not tenant sessions.
+app.use('/api', requireAdmin);
 
 // ═══ WEBHOOK VERIFICATION ═══
 app.get('/webhook', (req, res) => {
+  if (!VERIFY_TOKEN) return res.status(503).send('Webhook verification is not configured.');
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  if (mode === 'subscribe' && safeEqual(token, VERIFY_TOKEN)) {
     console.log('✅ Webhook verified');
     return res.status(200).send(challenge);
   }
@@ -46,15 +73,8 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', (req, res) => {
   const body = req.body || {};
   console.log('Webhook received:', { object: body.object, entries: body.entry?.length || 0 });
-  if (APP_SECRET) {
-    const sig = req.headers['x-hub-signature-256'];
-    const expected = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
-    if (typeof sig !== 'string' || sig.length !== expected.length ||
-        !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-      console.error('Webhook rejected: invalid or missing signature');
-      return res.sendStatus(403);
-    }
-  }
+  if (!APP_SECRET) return res.status(503).json({ error: 'Webhook signing is not configured.' });
+  if (!validWebhookSignature(req.rawBody, req.headers['x-hub-signature-256'])) return res.sendStatus(403);
   res.status(200).send('EVENT_RECEIVED');
   if (body.object !== 'instagram') {
     console.log('Webhook ignored: unsupported object');
@@ -95,7 +115,7 @@ async function handleIncomingDM(event) {
   const audioUrl = attachments.find(a => a.type === 'audio')?.payload?.url || null;
   const msgType  = audioUrl ? 'voice' : imageUrl ? 'image' : 'text';
 
-  console.log(`\n📩 DM [${msgType}]: "${text || '[media]'}" | Buyer:${buyerIgId}`);
+  console.log('DM received:', {type: msgType});
 
   // Load seller
   const { data: seller, error: sellerError } = await supabase
@@ -173,7 +193,7 @@ async function handleIncomingDM(event) {
   });
 
   // Load products with pairings
-  const { data: products } = await supabase
+  const { data: products = [] } = await supabase
     .from('products')
     .select('*, product_stock(variant, stock), categories(name, emoji)')
     .eq('seller_id', seller.id).eq('is_active', true);
@@ -241,7 +261,7 @@ async function handleIncomingDM(event) {
     rawReply = 'Sorry yaar, give me one second! Could you type that again? 😊';
   }
 
-  console.log('🤖 AI:', rawReply.substring(0, 150) + '...');
+  console.log('AI reply generated');
 
   // Parse photo tags [SEND_PHOTOS:SKU1,SKU2,...]
   const photoMatch = rawReply.match(/\[SEND_PHOTOS:([^\]]+)\]/);
@@ -280,16 +300,6 @@ async function handleIncomingDM(event) {
     last_message_at: new Date().toISOString(),
     message_count: (conv.message_count || 0) + 2
   }).eq('id', conv.id);
-
-  // Update product enquiry count for viewed products
-  if (photoMatch) {
-    const skus = photoMatch[1].split(',').map(s => s.trim());
-    for (const sku of skus) {
-      await supabase.from('products')
-        .update({ enquiry_count: supabase.raw ? 0 : 0 }) // Will use RPC later
-        .eq('sku', sku);
-    }
-  }
 
   // Update buyer preferences from conversation
   await updateBuyerPreferences(buyer, text, products);
@@ -513,15 +523,22 @@ function parseOrder(text) {
 // ═══ CAPTURE ORDER ═══
 async function captureOrder(orderData, seller, buyer, conv, products) {
   try {
-    console.log('📦 Order:', JSON.stringify(orderData));
+    console.log('Order candidate received');
     const product = products.find(p =>
       p.name.toLowerCase() === (orderData.product || '').toLowerCase() || p.sku === orderData.product_id
     );
 
-    if (product && orderData.size) {
-      try { await supabase.rpc('decrement_stock', { p_product_id: product.id, p_variant: orderData.size }); } catch (e) {}
+    if (!product || typeof orderData.price !== 'number' || !Number.isFinite(orderData.price) || orderData.price <= 0 ||
+        orderData.price < Number(product.min_price ?? product.listed_price) ||
+        typeof orderData.size !== 'string' || !product.sizes?.includes(orderData.size) ||
+        !product.product_stock?.some(stock => stock.variant === orderData.size && stock.stock > 0) ||
+        typeof orderData.address !== 'string' || !orderData.address.trim() || orderData.address.length > 1000 ||
+        typeof orderData.buyer_name !== 'string' || !orderData.buyer_name.trim() || orderData.buyer_name.length > 150) {
+      console.error('Order candidate rejected: invalid catalog, price, stock, or delivery fields');
+      return null;
     }
-
+    // Pending-payment candidates do not change stock. A transactional reservation/payment
+    // workflow is required before enabling automatic inventory changes.
     const { data: order, error } = await supabase.from('orders').insert({
       seller_id: seller.id, buyer_id: buyer.id,
       product_id: product?.id, conversation_id: conv.id,
@@ -592,7 +609,9 @@ async function handleOptOut(buyerIgId, sellerIgId, token) {
 
 // ═══ HUMAN HANDOFF ═══
 async function handleHumanHandoff(buyerIgId, sellerIgId, token, seller) {
-  await supabase.from('conversations').update({ status: 'human_handoff' }).eq('seller_id', seller.id);
+  const { data: buyer } = await supabase.from('buyers').select('id').eq('instagram_id', buyerIgId).maybeSingle();
+  if (!buyer) return;
+  await supabase.from('conversations').update({ status: 'human_handoff' }).eq('seller_id', seller.id).eq('buyer_id', buyer.id);
   await sendInstagramDM(sellerIgId, buyerIgId,
     "Of course! Notifying the owner right now 🙏 They'll reply shortly!", token);
 }
@@ -611,8 +630,14 @@ app.get('/api/orders/:sellerId', async (req, res) => {
   res.json(data || []);
 });
 app.patch('/api/orders/:orderId', async (req, res) => {
-  const { data } = await supabase.from('orders')
-    .update(req.body).eq('id', req.params.orderId).select().single();
+  const body = req.body;
+  const statuses = ['pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+  if (!body || Object.keys(body).length !== 1 || !statuses.includes(body.status)) {
+    return res.status(400).json({error:'Provide a supported order status only.'});
+  }
+  const { data, error } = await supabase.from('orders')
+    .update({status:body.status}).eq('id', req.params.orderId).select().single();
+  if (error) return res.status(400).json({error:'Order update could not be completed.'});
   res.json(data);
 });
 app.get('/api/products/:sellerId', async (req, res) => {
@@ -648,6 +673,13 @@ app.get('/', (req, res) => res.json({
 }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Keep parser errors and internal exceptions out of public responses.
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = error.type === 'entity.too.large' ? 413 : error.type === 'entity.parse.failed' ? 400 : 500;
+  res.status(status).json({error: status === 413 ? 'Request body too large.' : status === 400 ? 'Valid JSON required.' : 'Request could not be completed.'});
+});
+
 // Register instagram_basic API call on startup
 async function registerBasicCall() {
   const token = process.env.PAGE_ACCESS_TOKEN;
@@ -666,11 +698,14 @@ async function checkSellerDatabase() {
   const { data, error } = await supabase.from('sellers')
     .select('instagram_id, instagram_username');
   if (error) console.error('Seller database check failed:', error.code, error.message);
-  else console.log('Seller database ready:', data);
+  else console.log('Seller database ready');
 }
+if (require.main === module) {
 checkSellerDatabase().catch(err => console.error('Seller database check failed:', err.message));
 registerBasicCall();
 app.listen(PORT, () => {
   console.log(`\n🚀 InstaSell AI v4.0 — The Amazon of Instagram DMs`);
   console.log('   Visual Search | Outfit Completion | Smart Pricing | Multi-Order\n');
 });
+}
+module.exports = { app, requireAdmin, validWebhookSignature, safeEqual };
