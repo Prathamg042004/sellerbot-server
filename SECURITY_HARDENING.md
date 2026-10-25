@@ -12,7 +12,7 @@ Chat and order payloads are no longer printed in the changed logging statements.
 
 ## Validation
 
-Run `node --test security.test.cjs`. Five dependency-free regressions cover fail-closed management access, bearer tokens, webhook signatures, default verification tokens, and order mass assignment.
+Run `npm ci --ignore-scripts` and `npm test`. A sixth test exercises the real Express HTTP middleware against a loopback server, including authentication on all management routes, raw-body signatures, payload limits, and sanitized parser errors. CI runs these tests and checks high-severity production dependency advisories. Five dependency-free regressions cover fail-closed management access, bearer tokens, webhook signatures, default verification tokens, and order mass assignment.
 
 ## Remaining work
 

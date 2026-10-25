@@ -673,6 +673,13 @@ app.get('/', (req, res) => res.json({
 }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Keep parser errors and internal exceptions out of public responses.
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = error.type === 'entity.too.large' ? 413 : error.type === 'entity.parse.failed' ? 400 : 500;
+  res.status(status).json({error: status === 413 ? 'Request body too large.' : status === 400 ? 'Valid JSON required.' : 'Request could not be completed.'});
+});
+
 // Register instagram_basic API call on startup
 async function registerBasicCall() {
   const token = process.env.PAGE_ACCESS_TOKEN;
@@ -691,7 +698,7 @@ async function checkSellerDatabase() {
   const { data, error } = await supabase.from('sellers')
     .select('instagram_id, instagram_username');
   if (error) console.error('Seller database check failed:', error.code, error.message);
-  else console.log('Seller database ready:', data);
+  else console.log('Seller database ready');
 }
 if (require.main === module) {
 checkSellerDatabase().catch(err => console.error('Seller database check failed:', err.message));
