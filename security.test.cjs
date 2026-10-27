@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 
-function load(env = {}) {
+function load(env = {}, axiosMock = {}) {
   const routes = new Map();
   const app = {disable(){},use(){},get(path,fn){routes.set('GET '+path,fn);},post(path,fn){routes.set('POST '+path,fn);},patch(path,fn){routes.set('PATCH '+path,fn);},listen(){throw Error('Tests must not start a server');}};
   const express = () => app; express.json = () => () => {};
@@ -14,7 +14,7 @@ function load(env = {}) {
     if(name === 'crypto') return crypto;
     if(name === '@supabase/supabase-js') return {createClient:()=>({from(){throw Error('Unexpected database access');}})};
     if(name === '@anthropic-ai/sdk') return class {};
-    if(name === 'axios') return {};
+    if(name === 'axios') return axiosMock;
     if(name === './portal') return {mountPortal(){}};
     throw Error('Unexpected dependency '+name);
   };
@@ -63,4 +63,13 @@ test('human handoff recognizes complete phrases without matching SellerBot or be
  const api=load();
  for(const text of ['Connection test after authorizing SellerBot: what is the price?', 'Show your bestseller kurtas', 'Is this a humanmade pattern?', 'ownership details']) assert.equal(api.hasHumanRequest(text),false,text);
  for(const text of ['Can I speak to the seller?', 'A real person please', 'HUMAN', 'Talk to someone', 'Please contact the owner.']) assert.equal(api.hasHumanRequest(text),true,text);
+});
+
+test('photo delivery counts only accepted images and reports failures honestly',async()=>{
+ let calls=0;const api=load({}, {post:async()=>{calls++;if(calls===2)throw Error('synthetic delivery failure');return {data:{message_id:'synthetic-mid'}};}});
+ const products=[{sku:'A',name:'Demo A',listed_price:100,image_url:'https://example.com/a.jpg'},{sku:'B',name:'Demo B',listed_price:200,image_url:'https://example.com/b.jpg'},{sku:'C',name:'Demo C',listed_price:300}];
+ const r=await api.sendProductPhotos('shop','buyer',['A','A','B','C','unknown',''],products,'synthetic-token');
+ assert.equal(calls,2);assert.equal(r.sent.join(','),'A');assert.equal(r.failed.join(','),'B');assert.equal(r.unavailable.join(','),'Demo C,unknown');
+ assert.match(api.photoDeliverySummary(r),/Sent 1 illustrative demo image/);assert.match(api.photoDeliverySummary(r),/Some requested images/);
+ const noConfirmation=load({}, {post:async()=>({data:{}})});const failed=await noConfirmation.sendProductPhotos('shop','buyer',['A'],products,'synthetic-token');assert.equal(failed.sent.length,0);assert.match(noConfirmation.photoDeliverySummary(failed),/could not be delivered/);
 });

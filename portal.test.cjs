@@ -31,3 +31,10 @@ test('declined permissions and failed subscriptions never create a connected ses
 test('cancellation, session isolation and cross-site start are handled safely',async()=>{
  const f=await fixture();try{assert.equal((await f.request('/auth/instagram/start',{method:'POST'})).status,403);const u=await f.start();assert.equal((await f.request('/auth/instagram/callback?error=access_denied&state='+u.searchParams.get('state'))).headers.get('location'),'/app?notice=cancelled');assert.equal(f.calls(),0);const r=await f.request('/app');assert.equal(r.headers.get('cache-control'),'no-store');assert.equal(r.headers.get('x-frame-options'),'DENY');assert.equal((await f.request('/app/disconnect',{method:'POST',headers:{origin:f.base,'x-csrf-token':(await f.status()).csrf}})).status,401);}finally{await f.close();}
 });
+test('dashboard sample gallery serves JPEG assets and rejects non-catalog paths',async()=>{
+ const f=await fixture();try{
+ const page=await f.request('/app');const html=await page.text();assert.match(html,/AI-generated illustrations/);
+ for(const sku of ['KRT-006','KRT-001','ACC-001','ACC-002','ACC-003']){const r=await f.request('/catalog/'+sku+'.jpg');assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/image\/jpeg/);const bytes=new Uint8Array(await r.arrayBuffer());assert.equal(bytes[0],255);assert.equal(bytes[1],216);}
+ assert.equal((await f.request('/catalog/portal.js')).status,404);
+ }finally{await f.close();}
+});

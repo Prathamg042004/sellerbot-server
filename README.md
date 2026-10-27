@@ -93,3 +93,7 @@ The dashboard uses opaque HttpOnly, SameSite cookies, expiring single-use OAuth 
 Disconnect stops automation and clears the stored token for the authenticated seller; it preserves orders, messages and products. It does not revoke Meta permissions (the UI directs the owner to Instagram Apps and websites for revocation). Signing out only ends the dashboard session. Existing non-OAuth sellers continue to use their previous token configuration unless explicitly paused.
 
 `npm test` includes OAuth success, cancellation, expiry/replay protection, missing permissions, failed subscription, scoped persistence, disconnect and cross-origin protections with synthetic provider responses. Real provider approval and the callback must also be verified before making an App Review recording.
+
+## Demo product images
+
+The public dashboard includes five sample catalog cards. Files in `public/catalog/` are AI-generated illustrative demo images, labeled inside each image; they are not photographs of real stock. Catalog image URLs must point to the matching SKU on the deployed service. The image sender counts only Instagram-accepted messages and reports partial/missing delivery instead of claiming success. Default conversation language is English. A human handoff pauses the conversation without claiming an owner notification has been sent.
