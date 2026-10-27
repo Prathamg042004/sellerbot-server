@@ -57,3 +57,10 @@ test('order updates reject mass-assignment fields before database access',async(
   await api.routes.get('PATCH /api/orders/:orderId')({body:{status:'paid',agreed_price:1,seller_id:'other'},params:{orderId:'demo'}},res);
   assert.equal(res.code,400);
 });
+
+// Product and application names must not accidentally trigger human handoff.
+test('human handoff recognizes complete phrases without matching SellerBot or bestsellers',()=>{
+ const api=load();
+ for(const text of ['Connection test after authorizing SellerBot: what is the price?', 'Show your bestseller kurtas', 'Is this a humanmade pattern?', 'ownership details']) assert.equal(api.hasHumanRequest(text),false,text);
+ for(const text of ['Can I speak to the seller?', 'A real person please', 'HUMAN', 'Talk to someone', 'Please contact the owner.']) assert.equal(api.hasHumanRequest(text),true,text);
+});

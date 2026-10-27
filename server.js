@@ -27,6 +27,14 @@ const IG_API_BASE  = 'https://graph.instagram.com/v21.0';
 
 const OPT_OUT_WORDS = ['stop','unsubscribe','opt out','band karo','mat bhejo','dont message'];
 const HUMAN_WORDS   = ['human','real person','owner','seller','insaan','asli insaan','talk to someone','khud baat karo'];
+function hasHumanRequest(text) {
+  const lower = String(text || '').toLowerCase();
+  return HUMAN_WORDS.some(phrase => {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(^|[^\\p{L}\\p{N}_])' + escaped + '($|[^\\p{L}\\p{N}_])', 'u').test(lower);
+  });
+}
+
 const DROP_ALERT_WORDS = ['notify me','batana','alert me','jab aaye','new collection','naya aaye toh'];
 
 app.disable('x-powered-by');
@@ -139,7 +147,7 @@ async function handleIncomingDM(event) {
     return handleOptOut(buyerIgId, sellerIgId, TOKEN);
   }
   // Human handoff check
-  if (HUMAN_WORDS.some(w => lower.includes(w))) {
+  if (hasHumanRequest(text)) {
     return handleHumanHandoff(buyerIgId, sellerIgId, TOKEN, seller);
   }
 
@@ -712,4 +720,4 @@ app.listen(PORT, () => {
   console.log('   Visual Search | Outfit Completion | Smart Pricing | Multi-Order\n');
 });
 }
-module.exports = { app, requireAdmin, validWebhookSignature, safeEqual };
+module.exports = { app, requireAdmin, validWebhookSignature, safeEqual, hasHumanRequest };
