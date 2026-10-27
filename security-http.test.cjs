@@ -6,7 +6,7 @@ const crypto=require('node:crypto');
 const express=require('express');
 function app(env){
  const module={exports:{}};
- const dependencies={express,crypto,'@supabase/supabase-js':{createClient:()=>({from(){throw Error('Unexpected database access');}})},'@anthropic-ai/sdk':class{},axios:{}};
+ const dependencies={'./portal':{mountPortal(){}},express,crypto,'@supabase/supabase-js':{createClient:()=>({from(){throw Error('Unexpected database access');}})},'@anthropic-ai/sdk':class{},axios:{}};
  vm.runInNewContext(fs.readFileSync(__dirname+'/server.js','utf8'),{module,exports:module.exports,require:name=>{if(name in dependencies)return dependencies[name];throw Error('Unexpected dependency');},process:{env},Buffer,console:{log(){},error(){}},setTimeout,Date});
  return module.exports.app;
 }

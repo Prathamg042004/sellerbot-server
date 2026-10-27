@@ -77,3 +77,19 @@ Use `npm start` in production, `npm run dev` for local file watching, and `npm t
 ## Maintainer
 
 [Pratham Gupta](https://github.com/Prathamg042004)
+
+## Seller connection portal
+
+Open `/app` to start a real Instagram Business Login flow. The root URL now redirects to the portal; `/health` remains the machine health endpoint. Register this exact OAuth redirect URI in Meta's Instagram Business login settings:
+
+`https://sellerbot-server.onrender.com/auth/instagram/callback`
+
+The portal requests only `instagram_business_basic` and `instagram_business_manage_messages`. These belong to Instagram Login and differ from Facebook Login's `instagram_basic` / `instagram_manage_messages`; select the matching permissions in App Review.
+
+`INSTAGRAM_APP_ID` defaults to this project's Instagram app ID (1518243673369480). `INSTAGRAM_APP_SECRET` can override `APP_SECRET`; the latter must already be the Instagram signing secret. `PUBLIC_BASE_URL` defaults to the existing Render hostname. Never expose secrets to the browser. The backend exchanges authorization codes, validates granted scopes, retrieves the verified account's `user_id`, subscribes `messages`, and stores the long-lived token in the existing server-side seller record. It preserves the catalog when the same verified Instagram account reconnects.
+
+The dashboard uses opaque HttpOnly, SameSite cookies, expiring single-use OAuth state, origin/CSRF checks on actions, no-store responses and a restrictive CSP. Sessions are in memory, expire after eight hours, and are lost on restart. This is suitable for the existing single-instance prototype; shared durable sessions and periodic token refresh are needed before multi-instance/public scale. Tokens expire after roughly 60 days; reconnect before expiry. No secret or operator API token is embedded in the UI.
+
+Disconnect stops automation and clears the stored token for the authenticated seller; it preserves orders, messages and products. It does not revoke Meta permissions (the UI directs the owner to Instagram Apps and websites for revocation). Signing out only ends the dashboard session. Existing non-OAuth sellers continue to use their previous token configuration unless explicitly paused.
+
+`npm test` includes OAuth success, cancellation, expiry/replay protection, missing permissions, failed subscription, scoped persistence, disconnect and cross-origin protections with synthetic provider responses. Real provider approval and the callback must also be verified before making an App Review recording.

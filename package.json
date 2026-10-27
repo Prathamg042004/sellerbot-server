@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test security.test.cjs security-http.test.cjs"
+    "test": "node --test security.test.cjs security-http.test.cjs portal.test.cjs"
   },
   "dependencies": {
     "express": "^4.21.0",
