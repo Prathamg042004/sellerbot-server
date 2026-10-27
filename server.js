@@ -270,14 +270,14 @@ async function handleIncomingDM(event) {
     rawReply = response?.content?.[0]?.text || 'Sorry, could you say that again? 😊';
   } catch (aiErr) {
     console.log('❌ AI error:', aiErr.message);
-    rawReply = 'Sorry yaar, give me one second! Could you type that again? 😊';
+    rawReply = 'Sorry, I could not generate a reply right now. Please try again in a moment.';
   }
 
   console.log('AI reply generated');
 
   // Parse photo tags [SEND_PHOTOS:SKU1,SKU2,...]
   const photoMatch = rawReply.match(/\[SEND_PHOTOS:([^\]]+)\]/);
-  const cleanReply = rawReply
+  let cleanReply = rawReply
     .replace(/\[SEND_PHOTOS:[^\]]+\]/g, '')
     .replace(/<<<ORDER_CONFIRMED>>>[\s\S]*?<<<END_ORDER>>>/g, '')
     .trim();
@@ -286,7 +286,8 @@ async function handleIncomingDM(event) {
   if (photoMatch) {
     const skus = photoMatch[1].split(',').map(s => s.trim());
     console.log('📸 Sending photos:', skus);
-    await sendProductPhotos(sellerIgId, buyerIgId, skus, products, TOKEN);
+    const delivery = await sendProductPhotos(sellerIgId, buyerIgId, skus, products, TOKEN);
+    cleanReply = photoDeliverySummary(delivery);
   }
 
   // Send text reply
@@ -332,9 +333,10 @@ function buildSystemPromptV4(seller, products, categories, pairings, buyer) {
   const catalog = products.map(p => {
     const stock = p.product_stock?.map(s => `${s.variant}:${s.stock}`).join(',') || '?';
     const oos = p.product_stock?.filter(s => s.stock === 0).map(s => s.variant) || [];
+    const image = p.image_url ? ' [ILLUSTRATIVE DEMO IMAGE AVAILABLE]' : ' [NO IMAGE AVAILABLE]';
     const clearance = p.clearance ? ' [CLEARANCE—be generous with price]' : '';
     const demand = p.demand_level === 'high' ? ' [HIGH DEMAND—hold price firm]' : '';
-    return `[${p.sku}] "${p.name}" ₹${p.listed_price}(min₹${p.min_price}) ${p.color}|${p.material}|${p.sizes?.join(',')}|Stock:${stock}|${p.occasion?.join(',')}|${p.tags?.join(',')}${clearance}${demand}${oos.length ? '|SOLD OUT:'+oos.join(',') : ''}`;
+    return `[${p.sku}] "${p.name}" ₹${p.listed_price}(min₹${p.min_price}) ${p.color}|${p.material}|${p.sizes?.join(',')}|Stock:${stock}|${p.occasion?.join(',')}|${p.tags?.join(',')}${image}${clearance}${demand}${oos.length ? '|SOLD OUT:'+oos.join(',') : ''}`;
   }).join('\n');
 
   // Outfit pairings
@@ -374,7 +376,7 @@ Show categories with item counts and price ranges. Ask what they're in the mood 
 
 2️⃣ CATALOG BROWSING — When buyer picks a category:
 Show 3-4 products as numbered options with emoji, name, price, color, one-line hook.
-ALWAYS include [SEND_PHOTOS:SKU1,SKU2,SKU3,SKU4] so photos are sent.
+When showing products with available image URLs, include [SEND_PHOTOS:SKU1,SKU2,SKU3,SKU4]. Do not promise photos when images are unavailable.
 "Want to see more?" → show next batch.
 
 3️⃣ VISUAL SEARCH (YOUR KILLER FEATURE) — When buyer sends a PHOTO:
@@ -424,8 +426,8 @@ When product ✓ size ✓ price ✓ address ✓ are ALL confirmed:
 ═══ STYLE ═══
 - 2-3 lines max. This is Instagram DM, not email.
 - Numbered lists for products. Emojis per item.
-- Hinglish: "yaar", "bilkul", "ekdum sahi", "kya baat hai"
-- ALWAYS include [SEND_PHOTOS:...] when showing products
+- Use English by default. Use another language only when the buyer explicitly asks.
+- Include [SEND_PHOTOS:...] only for available catalog images. Images are illustrative demo assets, not photographs of actual stock. Never claim delivery yourself: the server reports confirmed image sends.
 - After EVERY order: suggest a complementary product
 - NEVER say goodbye first — always offer more shopping
 - Be proud of your collection: "You have GREAT taste!"`;
@@ -434,20 +436,37 @@ When product ✓ size ✓ price ✓ address ✓ are ALL confirmed:
 
 // ═══ SEND PRODUCT PHOTOS ═══
 async function sendProductPhotos(sellerIgId, buyerIgId, skus, products, token) {
-  for (const sku of skus) {
-    const product = products.find(p => p.sku === sku || p.name.toLowerCase().includes(sku.toLowerCase()));
-    if (!product || !product.image_url) continue;
+  const result = { sent: [], failed: [], unavailable: [], products: [] };
+  const unique = [...new Set(skus.map(s => String(s).trim()).filter(Boolean))].slice(0, 8);
+  for (const sku of unique) {
+    const product = products.find(p => p.sku === sku || p.name.toLowerCase() === sku.toLowerCase());
+    if (!product) { result.unavailable.push(sku); continue; }
+    result.products.push(product);
+    if (!product.image_url) { result.unavailable.push(product.name); continue; }
     try {
-      await axios.post(`${IG_API_BASE}/me/messages`, {
+      const response = await axios.post(`${IG_API_BASE}/me/messages`, {
         recipient: { id: buyerIgId },
         message: { attachment: { type: 'image', payload: { url: product.image_url } } }
-      }, { headers: { Authorization: `Bearer ${token}` } });
-      console.log(`📸 Photo sent: ${product.name}`);
-      await new Promise(r => setTimeout(r, 500));
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 });
+      if (!response.data?.message_id) throw new Error('Instagram did not confirm image acceptance');
+      result.sent.push(product.sku);
+      console.log('Product image accepted by Instagram:', product.sku);
+      await new Promise(r => setTimeout(r, 300));
     } catch (err) {
-      console.log(`📸 Photo skip: ${product.name} —`, err.response?.data?.error?.message || err.message);
+      result.failed.push(product.sku);
+      console.error('Product image delivery failed:', product.sku, err.response?.status || 'unconfirmed');
     }
   }
+  return result;
+}
+function photoDeliverySummary(result) {
+  let text = result.sent.length
+    ? `Sent ${result.sent.length} illustrative demo image${result.sent.length === 1 ? '' : 's'}. These represent sample products in our demo catalog.`
+    : 'Product images could not be delivered. Here are the catalog details instead.';
+  const details = result.products.map(p => `${p.sku}: ${p.name} — ₹${Number(p.listed_price)}`).join('\n');
+  if (details) text += '\n\n' + details;
+  if (result.failed.length || result.unavailable.length) text += '\n\nSome requested images were unavailable or could not be delivered.';
+  return text + '\n\nWhich item would you like to know more about?';
 }
 
 
@@ -625,7 +644,7 @@ async function handleHumanHandoff(buyerIgId, sellerIgId, token, seller) {
   if (!buyer) return;
   await supabase.from('conversations').update({ status: 'human_handoff' }).eq('seller_id', seller.id).eq('buyer_id', buyer.id);
   await sendInstagramDM(sellerIgId, buyerIgId,
-    "Of course! Notifying the owner right now 🙏 They'll reply shortly!", token);
+    "I have paused this automated conversation for a human reply. Please wait for the shop owner to respond.", token);
 }
 
 // ═══ MESSAGE DELETION ═══
@@ -720,4 +739,4 @@ app.listen(PORT, () => {
   console.log('   Visual Search | Outfit Completion | Smart Pricing | Multi-Order\n');
 });
 }
-module.exports = { app, requireAdmin, validWebhookSignature, safeEqual, hasHumanRequest };
+module.exports = { app, requireAdmin, validWebhookSignature, safeEqual, hasHumanRequest, sendProductPhotos, photoDeliverySummary };

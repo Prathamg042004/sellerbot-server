@@ -26,6 +26,11 @@ function mountPortal(app, { db, http, env = process.env, now = Date.now }) {
   });
   app.get('/', (req,res) => res.redirect('/app'));
   app.get('/app', (req,res) => res.sendFile(path.join(__dirname,'public','index.html')));
+  app.get('/catalog/:file', (req,res) => {
+    if (!/^(ACC|KRT|SAR|SET|WST)-[0-9]{3}\.jpg$/.test(req.params.file)) return res.sendStatus(404);
+    res.set({'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'});
+    res.sendFile(path.join(__dirname,'public','catalog',req.params.file));
+  });
   app.get('/app/style.css', (req,res) => res.sendFile(path.join(__dirname,'public','style.css')));
   app.get('/app/app.js', (req,res) => res.sendFile(path.join(__dirname,'public','app.js')));
   function csrf(req,res,next) {
