@@ -9,6 +9,7 @@ const crypto  = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
 const axios = require('axios');
+const { mountPortal } = require('./portal');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,6 +53,8 @@ function validWebhookSignature(rawBody, signature) {
   const expected = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(rawBody).digest('hex');
   return safeEqual(signature, expected);
 }
+
+mountPortal(app, { db: supabase, http: axios });
 
 // Administrative endpoints intentionally grant server-operator access, not tenant sessions.
 app.use('/api', requireAdmin);
@@ -126,6 +129,7 @@ async function handleIncomingDM(event) {
   }
   if (!seller) { console.error('Seller not found for recipient:', sellerIgId); return; }
   console.log('Seller matched:', seller.instagram_username);
+  if (seller.is_active === false) { console.log('Automation is paused for this seller'); return; }
   const TOKEN = seller.page_access_token || process.env.PAGE_ACCESS_TOKEN;
 
   const lower = (text || '').toLowerCase();

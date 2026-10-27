@@ -15,6 +15,7 @@ function load(env = {}) {
     if(name === '@supabase/supabase-js') return {createClient:()=>({from(){throw Error('Unexpected database access');}})};
     if(name === '@anthropic-ai/sdk') return class {};
     if(name === 'axios') return {};
+    if(name === './portal') return {mountPortal(){}};
     throw Error('Unexpected dependency '+name);
   };
   vm.runInNewContext(fs.readFileSync(__dirname+'/server.js','utf8'), {require:requireMock,module,exports:module.exports,process:{env},Buffer,console:{log(){},error(){}},setTimeout,Date});
