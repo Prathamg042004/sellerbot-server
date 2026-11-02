@@ -1,8 +1,9 @@
 'use strict';
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { mountWorkspace } = require('./workspace');
 const SCOPES = ['instagram_business_basic', 'instagram_business_manage_messages'];
-function mountPortal(app, { db, http, env = process.env, now = Date.now }) {
+function mountPortal(app, { db, http, ai, env = process.env, now = Date.now }) {
   const base = env.PUBLIC_BASE_URL || 'https://sellerbot-server.onrender.com';
   const redirectUri = base + '/auth/instagram/callback';
   const appId = env.INSTAGRAM_APP_ID || '1518243673369480';
@@ -38,6 +39,11 @@ function mountPortal(app, { db, http, env = process.env, now = Date.now }) {
     if (!s || req.headers.origin !== base || req.headers['x-csrf-token'] !== s.csrf) return res.status(403).json({error:'Refresh this page and try again.'});
     req.portalSession=s; next();
   }
+  mountWorkspace(app, { db, ai, env, csrf, authenticate(req,res,next) {
+    const s=session(req,res);
+    if(!s?.sellerId) return res.status(401).json({error:'Connect your Instagram account to open your workspace.'});
+    req.portalSession=s; next();
+  }});
   app.get('/app/status', async (req,res) => {
     const s = session(req,res,true);
     if (!s) return res.status(503).json({error:'Please try again shortly.'});
@@ -47,7 +53,7 @@ function mountPortal(app, { db, http, env = process.env, now = Date.now }) {
       if (error || !seller) throw Error('Account unavailable');
       const {count,error:countError} = await db.from('products').select('id',{count:'exact',head:true}).eq('seller_id',s.sellerId).eq('is_active',true);
       if (countError) throw Error('Catalog unavailable');
-      res.json({connected:seller.is_active===true, username:seller.instagram_username, products:count, csrf:s.csrf, scopes:SCOPES, expiresAt:s.tokenExpiresAt, configured:!!secret()});
+      res.json({authenticated:true, connected:seller.is_active===true, username:seller.instagram_username, products:count, csrf:s.csrf, scopes:SCOPES, expiresAt:s.tokenExpiresAt, configured:!!secret()});
     } catch {res.status(503).json({error:'Could not load your connection. Please try again.'});}
   });
   app.post('/auth/instagram/start', csrf, (req,res) => {

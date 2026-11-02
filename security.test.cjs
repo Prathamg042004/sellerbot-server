@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 
-function load(env = {}, axiosMock = {}) {
+function load(env = {}, axiosMock = {}, dbMock) {
   const routes = new Map();
   const app = {disable(){},use(){},get(path,fn){routes.set('GET '+path,fn);},post(path,fn){routes.set('POST '+path,fn);},patch(path,fn){routes.set('PATCH '+path,fn);},listen(){throw Error('Tests must not start a server');}};
   const express = () => app; express.json = () => () => {};
@@ -12,7 +12,7 @@ function load(env = {}, axiosMock = {}) {
   const requireMock = name => {
     if(name === 'express') return express;
     if(name === 'crypto') return crypto;
-    if(name === '@supabase/supabase-js') return {createClient:()=>({from(){throw Error('Unexpected database access');}})};
+    if(name === '@supabase/supabase-js') return {createClient:()=>(dbMock||{from(){throw Error('Unexpected database access');}})};
     if(name === '@anthropic-ai/sdk') return class {};
     if(name === 'axios') return axiosMock;
     if(name === './portal') return {mountPortal(){}};
@@ -72,4 +72,11 @@ test('photo delivery counts only accepted images and reports failures honestly',
  assert.equal(calls,2);assert.equal(r.sent.join(','),'A');assert.equal(r.failed.join(','),'B');assert.equal(r.unavailable.join(','),'Demo C,unknown');
  assert.match(api.photoDeliverySummary(r),/Sent 1 illustrative demo image/);assert.match(api.photoDeliverySummary(r),/Some requested images/);
  const noConfirmation=load({}, {post:async()=>({data:{}})});const failed=await noConfirmation.sendProductPhotos('shop','buyer',['A'],products,'synthetic-token');assert.equal(failed.sent.length,0);assert.match(noConfirmation.photoDeliverySummary(failed),/could not be delivered/);
+});
+
+test('handoff remains paused on subsequent messages and stores incoming text without AI or sends',async()=>{
+ const calls=[];const db={from(table){const q={select(){return q},eq(){return q},order(){return q},limit(){return q},in(k,values){assert.ok(values.includes('human_handoff'));return q},insert(value){calls.push({table,value});return q},single(){return q},maybeSingle(){return q},then(resolve){if(table==='sellers')resolve({data:{id:'seller',is_active:true,page_access_token:'synthetic'}});else if(table==='buyers')resolve({data:{id:'buyer'}});else if(table==='conversations')resolve({data:{id:'conv',status:'human_handoff'}});else if(table==='messages')resolve({error:null});else assert.fail('Paused conversation must not read '+table);}};return q;}};
+ const api=load({}, {post:()=>assert.fail('No messages should be sent')},db);
+ await api.handleIncomingDM({sender:{id:'buyer-ig'},recipient:{id:'seller-ig'},message:{mid:'msg-1',text:'notify me about the shirt'}});
+ assert.equal(calls.length,1);assert.equal(calls[0].table,'messages');assert.equal(calls[0].value.conversation_id,'conv');
 });
