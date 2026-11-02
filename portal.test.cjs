@@ -33,7 +33,7 @@ test('cancellation, session isolation and cross-site start are handled safely',a
 });
 test('dashboard sample gallery serves JPEG assets and rejects non-catalog paths',async()=>{
  const f=await fixture();try{
- const page=await f.request('/app');const html=await page.text();assert.match(html,/AI-generated illustrations/);
+ const page=await f.request('/app');const html=await page.text();assert.match(html,/SellerBot AI/);assert.match(html,/workspace.js/);
  for(const sku of ['KRT-006','KRT-001','ACC-001','ACC-002','ACC-003']){const r=await f.request('/catalog/'+sku+'.jpg');assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/image\/jpeg/);const bytes=new Uint8Array(await r.arrayBuffer());assert.equal(bytes[0],255);assert.equal(bytes[1],216);}
  assert.equal((await f.request('/catalog/portal.js')).status,404);
  }finally{await f.close();}

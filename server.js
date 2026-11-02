@@ -62,7 +62,7 @@ function validWebhookSignature(rawBody, signature) {
   return safeEqual(signature, expected);
 }
 
-mountPortal(app, { db: supabase, http: axios });
+mountPortal(app, { db: supabase, http: axios, ai: anthropic });
 
 // Administrative endpoints intentionally grant server-operator access, not tenant sessions.
 app.use('/api', requireAdmin);
@@ -172,16 +172,11 @@ async function handleIncomingDM(event) {
     console.log('Buyer explicitly resumed shopping');
   }
 
-  // Drop alert check
-  if (DROP_ALERT_WORDS.some(w => lower.includes(w))) {
-    return handleDropAlert(buyerIgId, sellerIgId, TOKEN, seller, buyer, lower);
-  }
-
   // Load/create conversation (allow multi-order by including 'ordered' status)
   let { data: conv } = await supabase
     .from('conversations').select('*')
     .eq('seller_id', seller.id).eq('buyer_id', buyer.id)
-    .in('status', ['active', 'ordered'])
+    .in('status', ['active', 'ordered', 'human_handoff'])
     .order('created_at', { ascending: false }).limit(1).single();
 
   if (!conv) {
@@ -203,6 +198,13 @@ async function handleIncomingDM(event) {
     conversation_id: conv.id, instagram_mid: messageId,
     role: 'buyer', content: msgContent, message_type: msgType
   });
+
+  if (conv.status === 'human_handoff') return;
+
+  // Drop alert check
+  if (DROP_ALERT_WORDS.some(w => lower.includes(w))) {
+    return handleDropAlert(buyerIgId, sellerIgId, TOKEN, seller, buyer, lower);
+  }
 
   // Load products with pairings
   const { data: products = [] } = await supabase
@@ -356,7 +358,7 @@ function buildSystemPromptV4(seller, products, categories, pairings, buyer) {
     if (buyer.saved_address) buyerCtx += `, Address: ${buyer.saved_address}`;
   }
 
-  return `You are "${seller.ai_name || 'Priya'}", the AI shopping assistant for "${seller.instagram_name || seller.instagram_username}" on Instagram. You are the COMPLETE SHOP — like Myntra + personal stylist + bargainer, all in one DM.
+  return `You are "${seller.ai_name || 'Priya'}", the AI shopping assistant for "${seller.instagram_name || seller.instagram_username}" on Instagram. Use a ${['friendly','professional','enthusiastic'].includes(seller.ai_tone)?seller.ai_tone:'friendly'} tone. You are the COMPLETE SHOP — like Myntra + personal stylist + bargainer, all in one DM.
 
 ${buyerCtx}
 
@@ -739,4 +741,4 @@ app.listen(PORT, () => {
   console.log('   Visual Search | Outfit Completion | Smart Pricing | Multi-Order\n');
 });
 }
-module.exports = { app, requireAdmin, validWebhookSignature, safeEqual, hasHumanRequest, sendProductPhotos, photoDeliverySummary };
+module.exports = { app, requireAdmin, validWebhookSignature, safeEqual, hasHumanRequest, sendProductPhotos, photoDeliverySummary, handleIncomingDM };

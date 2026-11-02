@@ -97,3 +97,13 @@ Disconnect stops automation and clears the stored token for the authenticated se
 ## Demo product images
 
 The public dashboard includes five sample catalog cards. Files in `public/catalog/` are AI-generated illustrative demo images, labeled inside each image; they are not photographs of real stock. Catalog image URLs must point to the matching SKU on the deployed service. The image sender counts only Instagram-accepted messages and reports partial/missing delivery instead of claiming success. Default conversation language is English. A human handoff pauses the conversation without claiming an owner notification has been sent.
+
+## Seller workspace
+
+The `/app` portal now includes responsive overview and sales charts, searchable catalog and order lists, product editing, variant stock controls, order status/tracking/notes, conversation history and human handoffs, shop-scoped customer summaries, CSV exports, assistant settings, and an AI writing studio. All live reads/writes use the authenticated Instagram seller session; browser input cannot select another seller. Writes require the existing CSRF and origin checks. Secrets remain on the backend.
+
+The workspace reads the existing `sellerbot` schema; no schema migration is required. It loads at most 500 recent records per main section and 100 recent messages per opened conversation. Sales reflect manually recorded paid/fulfilled order statuses, not payment-provider reconciliation. Inventory changes are manual and are not a reservation system. Draft generation is capped at 500 tokens and 12 calls per session/hour; drafts are never automatically published or sent.
+
+Unconnected visitors see an explicitly labeled interactive demo. Demo changes last only for the current tab session. Vercel hosts the same UI as a public demo/entry point and sends Connect actions to the existing Render `/app` origin, where OAuth sessions, live Supabase operations and AI run. This avoids splitting in-memory sessions across serverless instances or changing the registered Meta callback. It is not a migration of the webhook backend to Vercel.
+
+Deploy the repository to Vercel with `vercel.json` (static output via `node build-dashboard.js`). Deploy the backend normally on Render. Keep `PUBLIC_BASE_URL` on the registered Render origin. No Vercel database secret is needed. Authenticated backend end-to-end testing requires the shop owner to complete Instagram OAuth. The existing eight-hour, in-memory session limitation remains.
