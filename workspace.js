@@ -31,6 +31,13 @@ function mountWorkspace(app,{db,ai,env,authenticate,csrf}){
   if(!conv)return res.status(404).json({error:'Conversation not found.'});
   res.json(await result(db.from('messages').select('id,role,content,created_at').eq('conversation_id',conv.id).eq('is_deleted',false).order('created_at',{ascending:false}).limit(100)));
  });
+ route('get','/orders/:id/shipping',async(req,res)=>{
+  if(!UUID.test(req.params.id))fail('Invalid order.');
+  // Fetch delivery data only for an explicitly opened, seller-owned packing slip.
+  const shipping=await result(own(req,'orders','delivery_address,buyer_phone').eq('id',req.params.id).maybeSingle());
+  if(!shipping)return res.status(404).json({error:'Order not found.'});
+  res.json(shipping);
+ });
  route('post','/products',async(req,res)=>{
   const p=productInput(req.body||{});
   res.status(201).json(await result(db.from('products').insert({...p,seller_id:req.portalSession.sellerId}).select('id').single()));
