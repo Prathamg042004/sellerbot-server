@@ -115,6 +115,8 @@ app.post('/webhook', (req, res) => {
 
 // ═══ MAIN DM HANDLER ═══
 async function handleIncomingDM(event) {
+  // A stable provider ID is required for database-backed duplicate suppression.
+  if (!event?.sender?.id || !event?.recipient?.id || !event?.message?.mid) return;
   const buyerIgId  = event.sender.id;
   const sellerIgId = event.recipient.id;
   const text       = event.message?.text || '';
@@ -141,15 +143,6 @@ async function handleIncomingDM(event) {
   const TOKEN = seller.page_access_token || process.env.PAGE_ACCESS_TOKEN;
 
   const lower = (text || '').toLowerCase();
-
-  // Opt-out check
-  if (OPT_OUT_WORDS.some(w => lower.includes(w))) {
-    return handleOptOut(buyerIgId, sellerIgId, TOKEN);
-  }
-  // Human handoff check
-  if (hasHumanRequest(text)) {
-    return handleHumanHandoff(buyerIgId, sellerIgId, TOKEN, seller);
-  }
 
   // Load/create buyer
   let { data: buyer } = await supabase
@@ -188,17 +181,32 @@ async function handleIncomingDM(event) {
     conv = nc;
   }
 
-  if (conv.status === 'ordered') {
-    await supabase.from('conversations').update({ status: 'active' }).eq('id', conv.id);
-  }
-
   // Save incoming message
   const msgContent = imageUrl ? `[BUYER_PHOTO:${imageUrl}]` : audioUrl ? '[VOICE_NOTE]' : (text || 'hi');
-  await supabase.from('messages').insert({
+  const { error: incomingError } = await supabase.from('messages').insert({
     conversation_id: conv.id, instagram_mid: messageId,
     role: 'buyer', content: msgContent, message_type: msgType
   });
 
+  // instagram_mid is UNIQUE: only the successful inserter may reply or create orders.
+  // This suppresses redelivery, but is not a durable retry queue for failed processing.
+  if (incomingError?.code === '23505') return;
+  if (incomingError) throw new Error('Could not save incoming message');
+
+  const { error: activityError } = await supabase.from('conversations').update({
+    last_message_at: new Date().toISOString(),
+    window_expires_at: new Date(Date.now() + 24*60*60*1000).toISOString(),
+    ...(conv.status === 'ordered' ? { status: 'active' } : {})
+  }).eq('id', conv.id);
+  if (activityError) throw new Error('Could not update conversation activity');
+
+  // Save control messages too, including a new customer's first handoff request.
+  if (OPT_OUT_WORDS.some(w => lower.includes(w))) {
+    return handleOptOut(buyerIgId, sellerIgId, TOKEN);
+  }
+  if (hasHumanRequest(text)) {
+    return handleHumanHandoff(buyerIgId, sellerIgId, TOKEN, seller);
+  }
   if (conv.status === 'human_handoff') return;
 
   // Drop alert check
@@ -635,16 +643,18 @@ async function sendInstagramDM(sellerIgId, buyerIgId, text, token) {
 
 // ═══ OPT-OUT ═══
 async function handleOptOut(buyerIgId, sellerIgId, token) {
-  await supabase.from('buyers').update({ is_opted_out: true }).eq('instagram_id', buyerIgId);
+  const { error } = await supabase.from('buyers').update({ is_opted_out: true }).eq('instagram_id', buyerIgId);
+  if (error) throw new Error('Could not save opt-out');
   await sendInstagramDM(sellerIgId, buyerIgId,
-    "No problem! Messages stopped. Shop with us anytime by messaging again 😊", token);
+    "No problem! Messages stopped. Send START whenever you want to resume shopping 😊", token);
 }
 
 // ═══ HUMAN HANDOFF ═══
 async function handleHumanHandoff(buyerIgId, sellerIgId, token, seller) {
   const { data: buyer } = await supabase.from('buyers').select('id').eq('instagram_id', buyerIgId).maybeSingle();
   if (!buyer) return;
-  await supabase.from('conversations').update({ status: 'human_handoff' }).eq('seller_id', seller.id).eq('buyer_id', buyer.id);
+  const { error } = await supabase.from('conversations').update({ status: 'human_handoff' }).eq('seller_id', seller.id).eq('buyer_id', buyer.id);
+  if (error) throw new Error('Could not pause automated replies');
   await sendInstagramDM(sellerIgId, buyerIgId,
     "I have paused this automated conversation for a human reply. Please wait for the shop owner to respond.", token);
 }
