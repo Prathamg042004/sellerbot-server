@@ -75,8 +75,52 @@ test('photo delivery counts only accepted images and reports failures honestly',
 });
 
 test('handoff remains paused on subsequent messages and stores incoming text without AI or sends',async()=>{
- const calls=[];const db={from(table){const q={select(){return q},eq(){return q},order(){return q},limit(){return q},in(k,values){assert.ok(values.includes('human_handoff'));return q},insert(value){calls.push({table,value});return q},single(){return q},maybeSingle(){return q},then(resolve){if(table==='sellers')resolve({data:{id:'seller',is_active:true,page_access_token:'synthetic'}});else if(table==='buyers')resolve({data:{id:'buyer'}});else if(table==='conversations')resolve({data:{id:'conv',status:'human_handoff'}});else if(table==='messages')resolve({error:null});else assert.fail('Paused conversation must not read '+table);}};return q;}};
+ const calls=[];const db={from(table){const q={select(){return q},eq(){return q},order(){return q},limit(){return q},in(k,values){assert.ok(values.includes('human_handoff'));return q},insert(value){calls.push({table,value});return q},update(){return q},single(){return q},maybeSingle(){return q},then(resolve){if(table==='sellers')resolve({data:{id:'seller',is_active:true,page_access_token:'synthetic'}});else if(table==='buyers')resolve({data:{id:'buyer'}});else if(table==='conversations')resolve({data:{id:'conv',status:'human_handoff'}});else if(table==='messages')resolve({error:null});else assert.fail('Paused conversation must not read '+table);}};return q;}};
  const api=load({}, {post:()=>assert.fail('No messages should be sent')},db);
  await api.handleIncomingDM({sender:{id:'buyer-ig'},recipient:{id:'seller-ig'},message:{mid:'msg-1',text:'notify me about the shirt'}});
  assert.equal(calls.length,1);assert.equal(calls[0].table,'messages');assert.equal(calls[0].value.conversation_id,'conv');
+});
+
+function incomingFixture({insertError=null, pauseError=null}={}) {
+ const seen=new Set(), writes=[], sends=[];
+ const db={from(table){let operation='select',value;const q={select(){return q},eq(){return q},order(){return q},limit(){return q},in(){return q},single(){return q},maybeSingle(){return q},insert(v){operation='insert';value=v;return q},update(v){operation='update';value=v;return q},then(resolve){
+  if(operation==='update'){writes.push({table,value});return resolve({error:table==='conversations'&&value.status==='human_handoff'?pauseError:null});}
+  if(table==='messages') {writes.push({table,value});const duplicate=seen.has(value.instagram_mid);seen.add(value.instagram_mid);return resolve({error:insertError||(duplicate?{code:'23505'}:null)});}
+  resolve({data:table==='sellers'?{id:'seller',is_active:true,page_access_token:'synthetic'}:table==='buyers'?{id:'buyer'}:{id:'conv',status:'human_handoff'}});
+ }};return q;}};
+ const api=load({}, {post:async(...args)=>{sends.push(args);return {data:{message_id:'sent'}};}},db);
+ const event={sender:{id:'buyer-ig'},recipient:{id:'seller-ig'},message:{mid:'unique-mid',text:'Please contact the owner'}};
+ return {api,event,writes,sends};
+}
+test('concurrent duplicate handoff deliveries send only one acknowledgement',async()=>{
+ const f=incomingFixture();await Promise.all([f.api.handleIncomingDM(f.event),f.api.handleIncomingDM(f.event)]);
+ assert.equal(f.sends.length,1);
+ assert.equal(f.writes.filter(w=>w.value.status==='human_handoff').length,1);
+ assert.ok(f.writes.some(w=>w.table==='messages'&&w.value.content==='Please contact the owner'));
+});
+test('message persistence failures stop all replies and downstream actions',async()=>{
+ const f=incomingFixture({insertError:{code:'08006'}});
+ await assert.rejects(f.api.handleIncomingDM(f.event),/Could not save incoming message/);
+ assert.equal(f.sends.length,0);assert.equal(f.writes.length,1);
+});
+test('handoff persistence failure never falsely tells the customer AI is paused',async()=>{
+ const f=incomingFixture({pauseError:{code:'08006'}});
+ await assert.rejects(f.api.handleIncomingDM(f.event),/Could not pause/);assert.equal(f.sends.length,0);
+});
+test('missing provider message IDs are ignored before database or network access',async()=>{
+ const api=load();await api.handleIncomingDM({sender:{id:'b'},recipient:{id:'s'},message:{text:'hi'}});await api.handleIncomingDM({});
+});
+test('duplicate opt-out deliveries do not send repeated confirmations',async()=>{
+ const f=incomingFixture();f.event.message.text='unsubscribe';
+ await f.api.handleIncomingDM(f.event);await f.api.handleIncomingDM(f.event);
+ assert.equal(f.sends.length,1);assert.equal(f.writes.filter(w=>w.table==='buyers'&&w.value.is_opted_out).length,1);
+});
+
+test('takeover brief shows newest buyer message and matching orders with escaped customer content',()=>{
+ const source=fs.readFileSync(__dirname+'/public/workspace.js','utf8');
+ const helper=source.slice(source.indexOf('function handoffBrief('),source.indexOf('async function conversation('));
+ const context={data:{orders:[{buyer_id:'other',product_name:'PRIVATE'},{buyer_id:'buyer',order_number:7,product_name:'<script>bad</script>',status:'paid',created_at:'2026-10-01',tracking_number:'ABC'}]},esc:v=>String(v).replaceAll('<','&lt;').replaceAll('>','&gt;'),pill:v=>v};
+ vm.createContext(context);vm.runInContext(helper,context);
+ const html=context.handoffBrief({buyer_id:'buyer'},[{role:'buyer',content:'Old question',created_at:'2026-10-01'},{role:'buyer',content:'<img src=x>Latest question',created_at:'2026-10-02'},{role:'assistant',content:'Assistant answer',created_at:'2026-10-03'}]);
+ assert.match(html,/Latest question/);assert.match(html,/ABC/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/PRIVATE|Old question|Assistant answer|<img|<script>/);
 });
